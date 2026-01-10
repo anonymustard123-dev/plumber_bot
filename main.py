@@ -1,5 +1,5 @@
 import os
-from typing import Optional # <--- ADD THIS
+from typing import Optional 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from twilio.rest import Client
@@ -7,6 +7,8 @@ from twilio.rest import Client
 app = FastAPI()
 
 # --- CONFIGURATION ---
+# Railway "Variables" are automatically loaded as environment variables, 
+# so os.getenv work perfectly here.
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
@@ -16,9 +18,7 @@ SERVICE_AREA_ZIPS = ["15201", "15202", "15203", "15212", "15213", "15222", "1523
 
 twilio_client = Client(TWILIO_SID, TWILIO_TOKEN)
 
-# --- UPDATED DATA MODELS ---
-# We make fields Optional so the tool doesn't crash if the AI 
-# fires it before asking for a name or zip code.
+# --- DATA MODELS ---
 class EmergencyReport(BaseModel):
     customer_name: Optional[str] = "Unknown Caller"
     customer_phone: Optional[str] = "No Number Provided"
@@ -49,33 +49,34 @@ async def report_emergency(data: EmergencyReport):
     """
     Tool 2: EMERGENCY DISPATCH
     """
-    print(f"🚨 EMERGENCY REPORTED: {data.issue_type}")
+    # 1. LOGGING: Print to Railway console so you can see if it hits
+    print(f"🚨 TOOL TRIGGERED. Incoming Data: {data}")
 
-    # Force severity to high if the AI implies it
-    if data.severity.lower() == "high":
-        sms_body = (
-            f"🚨 NEW EMERGENCY JOB 🚨\n\n"
-            f"Issue: {data.issue_type}\n"
-            f"Phone: {data.customer_phone}\n"
-            f"Name: {data.customer_name}\n"
-            f"Location: {data.zip_code}\n"
-            f"Action: Call immediately."
-        )
-        
-        try:
-            message = twilio_client.messages.create(
-                body=sms_body,
-                from_=TWILIO_FROM_NUMBER,
-                to=PLUMBER_CELL
-            )
-            return {"status": "success", "message": "Dispatcher alerted."}
-        except Exception as e:
-            print(f"Twilio Error: {e}")
-            # Return success to the AI so the call doesn't drop, even if SMS fails internally
-            return {"status": "error", "message": "Logged, but SMS failed."}
+    # 2. UNCONDITIONAL SMS: We removed the 'if severity == High' check.
+    # If the AI calls this tool, we assume it IS an emergency.
     
-    else:
-        return {"status": "logged", "message": "Routine issue logged."}
+    sms_body = (
+        f"🚨 NEW EMERGENCY JOB 🚨\n\n"
+        f"Issue: {data.issue_type}\n"
+        f"Phone: {data.customer_phone}\n"
+        f"Name: {data.customer_name}\n"
+        f"Location: {data.zip_code}\n"
+        f"Action: Call immediately."
+    )
+    
+    try:
+        message = twilio_client.messages.create(
+            body=sms_body,
+            from_=TWILIO_FROM_NUMBER,
+            to=PLUMBER_CELL
+        )
+        print(f"✅ SMS SENT to {PLUMBER_CELL}. SID: {message.sid}")
+        return {"status": "success", "message": "Dispatcher alerted."}
+    except Exception as e:
+        # This prints the actual error to your Railway logs
+        print(f"❌ TWILIO FAILURE: {e}")
+        # Return success to the AI so the call doesn't drop
+        return {"status": "error", "message": "Logged, but SMS failed internally."}
 
 @app.post("/book-routine")
 async def book_routine(data: BookingRequest):
@@ -85,6 +86,7 @@ async def book_routine(data: BookingRequest):
         f"Requested: {data.preferred_time}\n"
         f"Action: Call back tomorrow."
     )
+    # Note: You might want to wrap this in a try/except block too eventually
     twilio_client.messages.create(
         body=sms_body,
         from_=TWILIO_FROM_NUMBER,
