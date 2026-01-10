@@ -7,8 +7,6 @@ from twilio.rest import Client
 app = FastAPI()
 
 # --- CONFIGURATION ---
-# Railway "Variables" are automatically loaded as environment variables, 
-# so os.getenv work perfectly here.
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
@@ -20,9 +18,11 @@ twilio_client = Client(TWILIO_SID, TWILIO_TOKEN)
 
 # --- DATA MODELS ---
 class EmergencyReport(BaseModel):
+    # CHANGED: All fields are now Optional with defaults.
+    # This prevents the "Validation Error" crash completely.
     customer_name: Optional[str] = "Unknown Caller"
     customer_phone: Optional[str] = "No Number Provided"
-    issue_type: str 
+    issue_type: Optional[str] = "Unspecified Emergency" 
     severity: Optional[str] = "High" 
     zip_code: Optional[str] = "Unknown Area"
 
@@ -49,12 +49,8 @@ async def report_emergency(data: EmergencyReport):
     """
     Tool 2: EMERGENCY DISPATCH
     """
-    # 1. LOGGING: Print to Railway console so you can see if it hits
     print(f"🚨 TOOL TRIGGERED. Incoming Data: {data}")
 
-    # 2. UNCONDITIONAL SMS: We removed the 'if severity == High' check.
-    # If the AI calls this tool, we assume it IS an emergency.
-    
     sms_body = (
         f"🚨 NEW EMERGENCY JOB 🚨\n\n"
         f"Issue: {data.issue_type}\n"
@@ -73,9 +69,7 @@ async def report_emergency(data: EmergencyReport):
         print(f"✅ SMS SENT to {PLUMBER_CELL}. SID: {message.sid}")
         return {"status": "success", "message": "Dispatcher alerted."}
     except Exception as e:
-        # This prints the actual error to your Railway logs
         print(f"❌ TWILIO FAILURE: {e}")
-        # Return success to the AI so the call doesn't drop
         return {"status": "error", "message": "Logged, but SMS failed internally."}
 
 @app.post("/book-routine")
@@ -86,7 +80,6 @@ async def book_routine(data: BookingRequest):
         f"Requested: {data.preferred_time}\n"
         f"Action: Call back tomorrow."
     )
-    # Note: You might want to wrap this in a try/except block too eventually
     twilio_client.messages.create(
         body=sms_body,
         from_=TWILIO_FROM_NUMBER,
